@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>A Simple Puzzle</title>
+    <style>
+        body { background: #000; color: #fff; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; touch-action: none; overflow: hidden; }
+        h1 { margin: 0 0 10px 0; color: #fbbf24; font-size: 1.8rem; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 10px rgba(251, 191, 36, 0.3); }
+        .stats { display: flex; gap: 30px; margin-bottom: 10px; font-size: 1.1rem; font-weight: bold; color: #888; }
+        .stats span { color: #fff; }
+        canvas { background: #050505; border: 2px solid #333; cursor: grab; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .controls { margin-top: 15px; display: flex; gap: 10px; }
+        button { padding: 10px 18px; background: #222; color: #fff; border: 1px solid #444; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:hover { background: #333; border-color: #666; }
+        #status { height: 30px; color: #fbbf24; font-size: 1.3rem; font-weight: bold; margin-top: 5px; }
+        footer { position: fixed; bottom: 15px; color: #555; font-size: 0.9rem; letter-spacing: 1px; }
+        
+        /* Rules Modal */
+        #modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: none; justify-content: center; align-items: center; z-index: 100; padding: 20px; box-sizing: border-box; }
+        .modal-content { background: #111; border: 2px solid #444; padding: 25px; border-radius: 15px; max-width: 400px; text-align: left; line-height: 1.6; }
+        .modal-content h2 { color: #fbbf24; margin-top: 0; }
+        .modal-content ul { padding-left: 20px; }
+        .close-btn { background: #fbbf24; color: #000; width: 100%; margin-top: 15px; border: none; }
+    </style>
+</head>
+<body>
+
+<div class="ui">
+    <h1>A simple puzzle</h1>
+    <div class="stats">
+        <div>Steps: <span id="moveCount">0</span></div>
+        <div>Time: <span id="timer">00:00</span></div>
+    </div>
+    <div id="status"></div>
+</div>
+
+<canvas id="c" width="500" height="300"></canvas>
+
+<div class="controls">
+    <button onclick="showRules()">How to Play</button>
+    <button onclick="confirmReset()">Reset</button>
+</div>
+
+<footer>Created by Aniket</footer>
+
+<div id="modal">
+    <div class="modal-content">
+        <h2>How to Play</h2>
+        <ul>
+            <li><b>Goal:</b> Move all <b>Blue</b> spheres to the right and <b>Green</b> spheres to the left.</li>
+            <li><b>Movement:</b> Drag a sphere into an <b>empty adjacent</b> slot.</li>
+            <li><b>The Rules:</b> Spheres cannot jump over each other.</li>
+            <li><b>The Box:</b> Use the center-top box to temporarily store a sphere while others pass.</li>
+        </ul>
+        <button class="close-btn" onclick="hideRules()">START PLAYING</button>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const moveDisplay = document.getElementById('moveCount'), timeDisplay = document.getElementById('timer'), statusDisplay = document.getElementById('status');
+
+const R = 38, SIZE = 100;
+let pieces = [], dragging = null, moves = 0, startTime = null, timerInterval = null, gameActive = false, startSlotId = ""; 
+
+const ADJ = {
+    "0,0": ["1,0"], "1,0": ["0,0", "2,0", "1,1"], "2,0": ["1,0"],
+    "1,1": ["1,0", "1,2"], "1,2": ["1,1", "0,2", "1,3"], "0,2": ["1,2"],
+    "1,3": ["1,2", "1,4"], "0,4": ["1,4"], "1,4": ["0,4", "2,4", "1,3"], "2,4": ["1,4"]
+};
+
+function init() {
+    clearInterval(timerInterval);
+    moves = 0; startTime = null; gameActive = true;
+    moveDisplay.innerText = "0"; timeDisplay.innerText = "00:00"; statusDisplay.innerText = "";
+    pieces = [
+        {x: 50, y: 50,  c: "#3b82f6", type: 'blue'}, {x: 50, y: 150, c: "#3b82f6", type: 'blue'}, {x: 50, y: 250, c: "#3b82f6", type: 'blue'},
+        {x: 450, y: 50, c: "#22c55e", type: 'green'}, {x: 450, y: 150, c: "#22c55e", type: 'green'}, {x: 450, y: 250, c: "#22c55e", type: 'green'}
+    ];
+    draw();
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.beginPath();
+    ctx.moveTo(0,0); ctx.lineTo(100,0); ctx.lineTo(100,100); ctx.lineTo(200,100); ctx.lineTo(200,0); ctx.lineTo(300,0); ctx.lineTo(300,100); 
+    ctx.lineTo(400,100); ctx.lineTo(400,0); ctx.lineTo(500,0); ctx.lineTo(500,300); ctx.lineTo(400,300); ctx.lineTo(400,200); 
+    ctx.lineTo(100,200); ctx.lineTo(100,300); ctx.lineTo(0,300); ctx.closePath(); ctx.stroke();
+    pieces.forEach(p => {
+        ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, 7); ctx.fillStyle = p.c; ctx.fill();
+        ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
+    });
+}
+
+function getPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+}
+
+canvas.onmousedown = canvas.ontouchstart = (e) => {
+    if (!gameActive) return;
+    const p = getPos(e);
+    const found = pieces.find(pc => Math.hypot(pc.x - p.x, pc.y - p.y) < R);
+    if(found) { dragging = found; startSlotId = `${Math.floor(found.y/SIZE)},${Math.floor(found.x/SIZE)}`; }
+};
+
+window.onmousemove = window.ontouchmove = (e) => {
+    if(!dragging || !gameActive) return;
+    const p = getPos(e);
+    const r = Math.floor(dragging.y/SIZE), c = Math.floor(dragging.x/SIZE);
+    ADJ[`${r},${c}`].forEach(n => {
+        const [nr, nc] = n.split(',').map(Number), tx = nc*SIZE+50, ty = nr*SIZE+50;
+        if(!pieces.some(p=>p!==dragging && p.x===tx && p.y===ty) && Math.hypot(p.x-tx, p.y-ty)<55) {
+            if(!startTime) { startTime = new Date(); timerInterval = setInterval(updateTimer, 1000); }
+            dragging.x = tx; dragging.y = ty;
+        }
+    });
+    draw();
+};
+
+window.onmouseup = window.ontouchend = () => {
+    if(!dragging) return;
+    if(`${Math.floor(dragging.y/SIZE)},${Math.floor(dragging.x/SIZE)}` !== startSlotId) { moves++; moveDisplay.innerText = moves; }
+    dragging = null; draw(); checkWin();
+};
+
+function updateTimer() {
+    const diff = Math.floor((new Date() - startTime)/1000);
+    timeDisplay.innerText = `${Math.floor(diff/60).toString().padStart(2,'0')}:${(diff%60).toString().padStart(2,'0')}`;
+}
+
+function checkWin() {
+    if(pieces.filter(p=>p.type==='blue'&&p.x===450).length===3 && pieces.filter(p=>p.type==='green'&&p.x===50).length===3) {
+        gameActive = false; clearInterval(timerInterval); statusDisplay.innerText = "PUZZLE SOLVED! 🏆";
+    }
+}
+
+function showRules() { document.getElementById('modal').style.display = 'flex'; }
+function hideRules() { document.getElementById('modal').style.display = 'none'; }
+function confirmReset() { if(confirm("Restart the puzzle?")) init(); }
+
+init();
+</script>
+</body>
+</html>
